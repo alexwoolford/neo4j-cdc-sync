@@ -1,0 +1,44 @@
+[project]
+name = "neo4j-cdc-sync"
+version = "1.0.0"
+description = "Neo4j CDC demonstration toolkit for replicating data between Aura instances via Azure Event Hubs"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    {name = "Alex Woolford", email = "alex@example.com"}
+]
+dependencies = [
+    "neo4j>=5.14.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[build-system]
+requires = ["setuptools>=68.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["utils"]
+py-modules = ["setup_demo", "verify_cdc"]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false

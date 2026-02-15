@@ -1,0 +1,7 @@
+# Gitleaks config: allowlist paths that are gitignored and may contain local secrets.
+# CI scans only tracked files; this avoids false positives when running locally with --no-git.
+[allowlist]
+description = "Ignore IDE/local settings that are gitignored"
+paths = [
+  '''\.claude/''',
+]

@@ -1,0 +1,13 @@
+# Exclude connector configurations (generated at runtime)
+connectors/*.json
+
+# Exclude temporary files
+*.tmp
+*.bak
+
+# Exclude logs
+logs/
+
+# Exclude git files
+.git/
+.gitignore

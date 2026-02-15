@@ -1,0 +1,9 @@
+# Required — get these from https://console.neo4j.io (Account > API Keys)
+# Copy this file to terraform.tfvars and replace the placeholders.
+aura_client_id     = "your-aura-client-id"
+aura_client_secret = "your-aura-client-secret"
+aura_tenant_id     = "your-aura-tenant-uuid"
+
+# Optional — defaults are fine for most demos
+# azure_region = "eastus"       # Must be an Aura-supported Azure region
+# project_name = "neo4j-cdc-demo"
