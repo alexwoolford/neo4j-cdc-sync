@@ -31,8 +31,8 @@ resource "azurerm_container_registry" "acr" {
   tags = var.tags
 }
 
-# Build and push the Kafka Connect image
-# This uses local Docker to build, then pushes to ACR
+# Build and push the Kafka Connect image using Azure ACR Tasks
+# This builds the image in Azure, eliminating local Docker daemon dependency
 resource "null_resource" "build_and_push_image" {
   # Trigger rebuild if Dockerfile changes
   triggers = {
@@ -43,32 +43,18 @@ resource "null_resource" "build_and_push_image" {
   provisioner "local-exec" {
     command = <<-EOT
       set -e
-      cd ${path.root}/../kafka-connect
-
-      # Build the image (linux/amd64 required for Azure Container Instances)
       echo "Building Kafka Connect image with Neo4j connector ${var.neo4j_connector_version}..."
-      docker build \
+      echo "Using Azure ACR Tasks (no local Docker required)..."
+
+      # Build image in Azure (not on local machine)
+      az acr build \
+        --registry ${azurerm_container_registry.acr.name} \
+        --image neo4j-kafka-connect:${var.neo4j_connector_version} \
         --platform linux/amd64 \
         --build-arg NEO4J_CONNECTOR_VERSION=${var.neo4j_connector_version} \
-        -t neo4j-kafka-connect:${var.neo4j_connector_version} \
-        .
+        ${path.root}/../kafka-connect
 
-      # Tag for ACR
-      docker tag neo4j-kafka-connect:${var.neo4j_connector_version} \
-        ${azurerm_container_registry.acr.login_server}/neo4j-kafka-connect:${var.neo4j_connector_version}
-
-      # Login to ACR
-      echo "Logging into Azure Container Registry..."
-      echo '${azurerm_container_registry.acr.admin_password}' | \
-        docker login ${azurerm_container_registry.acr.login_server} \
-        --username ${azurerm_container_registry.acr.admin_username} \
-        --password-stdin
-
-      # Push to ACR
-      echo "Pushing image to ACR..."
-      docker push ${azurerm_container_registry.acr.login_server}/neo4j-kafka-connect:${var.neo4j_connector_version}
-
-      echo "Image successfully pushed to ACR"
+      echo "Image successfully built and pushed to ACR"
     EOT
   }
 

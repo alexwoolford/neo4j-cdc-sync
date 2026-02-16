@@ -164,11 +164,13 @@ resource "null_resource" "deploy_connectors" {
 
     # Pass secrets via environment variables (never written to disk)
     environment = {
-      CONNECT_URL               = "http://${azurerm_container_group.kafka_connect.ip_address}:8083"
-      MASTER_NEO4J_URI          = var.master_neo4j_uri
-      MASTER_NEO4J_PASSWORD     = var.master_neo4j_password
-      SUBSCRIBER_NEO4J_URI      = var.subscriber_neo4j_uri
-      SUBSCRIBER_NEO4J_PASSWORD = var.subscriber_neo4j_password
+      CONNECT_URL                  = "http://${azurerm_container_group.kafka_connect.ip_address}:8083"
+      MASTER_NEO4J_URI            = var.master_neo4j_uri
+      MASTER_NEO4J_PASSWORD       = var.master_neo4j_password
+      SUBSCRIBER_NEO4J_URI        = var.subscriber_neo4j_uri
+      SUBSCRIBER_NEO4J_PASSWORD   = var.subscriber_neo4j_password
+      EVENT_HUBS_FQDN             = var.event_hubs_fqdn
+      EVENT_HUBS_CONNECTION_STRING = var.event_hubs_connection_string
     }
   }
 

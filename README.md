@@ -33,29 +33,86 @@ conda activate neo4j-cdc-sync
 
 This installs Python 3.11 and all required dependencies (neo4j driver, requests, rich).
 
+## ⚠️ Security Warning
+
+**This deployment exposes the Kafka Connect REST API (port 8083) publicly to the internet.**
+
+### Acceptable Use
+- ✅ Short-term demos and learning (< 1 day)
+- ✅ Environments where you run `terraform destroy` immediately after testing
+
+### NOT Acceptable
+- ❌ Production systems
+- ❌ Long-running deployments
+- ❌ Systems handling sensitive data
+
+### Why This Matters
+
+The Kafka Connect REST API at port 8083 allows anyone who finds your IP to:
+- Deploy malicious connectors to your cluster
+- Read Event Hubs connection strings from connector configurations
+- Potentially access your Neo4j instances if credentials are exposed in configs
+
+### Mitigation
+
+1. **Recommended for Demos**: Run `terraform destroy` immediately after your demo
+2. **Basic Protection**: Implement IP whitelisting (requires ACI configuration changes)
+3. **Production Setup**: Use Azure VNet integration with private endpoints (requires Premium Event Hubs)
+
+**Bottom line:** This is safe for 1-day demos, but NOT for production or long-running systems.
+
 ## Deploy
 
+### Quick Start (Recommended)
+
+Use the automated deployment script with pre-flight checks:
+
 ```bash
+# 1. Create terraform.tfvars from template
 cd terraform
 cp terraform.tfvars.example terraform.tfvars
+
+# 2. Edit terraform.tfvars and add your Aura API credentials
+#    Get credentials from: https://console.neo4j.io → Account → API Keys
+
+# 3. Run deployment script
+cd ..
+./deploy.sh
 ```
 
-Edit `terraform.tfvars` and fill in your Aura API credentials:
+The `deploy.sh` script will:
+- ✓ Verify Azure CLI authentication
+- ✓ Validate Python dependencies (rich, neo4j, requests, kafka-python)
+- ✓ Check Terraform configuration
+- ✓ Display security warning about port 8083
+- ✓ Deploy infrastructure via Terraform
+- ✓ Provide next steps
 
-```hcl
-aura_client_id     = "your-client-id"
-aura_client_secret = "your-client-secret"
-aura_tenant_id     = "your-tenant-id"
-```
+### Manual Deployment (Advanced)
 
-Then deploy:
+If you prefer manual control:
 
 ```bash
+# 1. Activate conda environment
+conda activate neo4j-cdc-sync
+
+# 2. Authenticate with Azure
+az login
+
+# 3. Configure and deploy
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your credentials
 terraform init
 terraform apply
 ```
 
-This takes about 8 minutes. Terraform provisions two Aura instances, an Event Hubs namespace, a container registry, builds and pushes the Docker image, starts a Kafka Connect container, and deploys the source and sink connectors.
+### Deployment Time
+
+- Initial deployment: ~8 minutes
+- Subsequent deployments (cached): ~3-4 minutes
+
+Terraform provisions two Aura instances, an Event Hubs namespace with single-partition topic, a container registry, builds the Docker image in Azure, starts a Kafka Connect container, and deploys the source and sink connectors with automatic partition verification.
 
 ## Get credentials
 
@@ -196,26 +253,111 @@ The `.gitignore` excludes `.env`, `*.tfvars`, `terraform.tfstate*`, and generate
 
 ## Troubleshooting
 
-**Connector shows FAILED**: Check the task trace for details:
+### Pre-Deployment Issues
 
+**Error: "Azure CLI not authenticated"**
+- Run: `az login`
+- Verify: `az account show`
+
+**Error: "Python dependencies missing"**
+- Activate environment: `conda activate neo4j-cdc-sync`
+- Or create it: `conda env create -f environment.yml`
+- Verify: `python3 -c "import rich, neo4j, requests, kafka"`
+
+**Error: "terraform.tfvars not found or incomplete"**
+- Copy template: `cp terraform/terraform.tfvars.example terraform/terraform.tfvars`
+- Edit and add your Aura API credentials from https://console.neo4j.io
+
+**Error: "Docker daemon not running" (if using local builds)**
+- Start Docker Desktop
+- Verify: `docker info`
+- Or switch to Azure-side builds (already configured with `az acr build`)
+
+### Connector Issues
+
+**Connector shows FAILED**
+
+Check detailed error:
 ```bash
+KAFKA_CONNECT=$(terraform output -raw kafka_connect_rest_api)
 curl -s $KAFKA_CONNECT/connectors/neo4j-master-publisher/tasks/0/status | jq '.trace'
+curl -s $KAFKA_CONNECT/connectors/neo4j-subscriber-consumer/tasks/0/status | jq '.trace'
 ```
 
-To restart a failed task:
-
+Restart failed connector:
 ```bash
 curl -X POST $KAFKA_CONNECT/connectors/neo4j-master-publisher/tasks/0/restart
 ```
 
-Note: The deploy script automatically restarts the source task after initial deployment to work around an Azure Event Hubs metadata timeout issue.
+**Source connector stuck in "STARTING"**
 
-**Aura region error**: The Aura provider expects region names like `eastus`, not `azure-eastus`. The `azure_region` variable in `variables.tf` is passed directly to both Azure and Aura resources.
+Event Hubs metadata timeout (known issue). Restart the task:
+```bash
+curl -X POST $KAFKA_CONNECT/connectors/neo4j-master-publisher/tasks/0/restart
+```
 
-**Docker image OS mismatch on Apple Silicon**: The Dockerfile builds with `--platform linux/amd64` to target Azure Container Instances.
+The deploy script automatically restarts once, but you can manually restart if needed.
 
-**Python dependencies not found**: Make sure the conda environment is activated before running terraform:
+### CDC Sync Issues
 
+**Relationships missing in subscriber (nodes replicate but relationships don't)**
+
+This is the **multi-partition issue** — the most common CDC failure mode.
+
+**Cause:** Event Hubs topic has >1 partition, breaking CDC ordering. Relationships arrive before their nodes, causing foreign key violations.
+
+**Diagnosis:**
+The `configure_connectors.py` script checks partition count automatically. If it warned during deployment, follow the fix below.
+
+**Fix:**
+```bash
+# Option A: Delete topic in Azure Portal, then re-apply
+# Azure Portal → Event Hubs → Your namespace → Event Hubs → cdc-all → Delete
+cd terraform
+terraform apply
+
+# Option B: Destroy and recreate everything
+cd terraform
+terraform destroy
+terraform apply
+```
+
+**Verify fix:**
+```bash
+cd python
+python verify_cdc.py
+```
+
+**Slow propagation (>5 seconds per event)**
+
+- Azure Event Hubs needs 1-2 minutes after idle to establish connections
+- Run warmup: `python test_live_cdc.py` (includes automatic warm-up phase)
+- Check connectors are RUNNING: `curl $KAFKA_CONNECT/connectors/neo4j-master-publisher/status`
+
+**Sink connector error: "Node not found"**
+
+This means relationships arrived before nodes (ordering violation):
+- Verify topic has exactly 1 partition (see multi-partition fix above)
+- Check source connector config has `topic.creation.default.partitions=1` (should be automatic)
+- Restart connectors and clear data: `terraform destroy && terraform apply`
+
+### Other Issues
+
+**Aura region error: "Invalid region"**
+
+The Aura provider expects region names like `eastus`, not `azure-eastus`. The `azure_region` variable in `variables.tf` is passed directly to both Azure and Aura resources.
+
+**Docker image OS mismatch on Apple Silicon**
+
+The image is now built in Azure using `az acr build`, which always produces linux/amd64 images compatible with Azure Container Instances.
+
+**Python dependencies not found during Terraform run**
+
+Make sure the conda environment is activated BEFORE running Terraform:
 ```bash
 conda activate neo4j-cdc-sync
+cd terraform
+terraform apply
 ```
+
+Or use the `./deploy.sh` script which checks this automatically.

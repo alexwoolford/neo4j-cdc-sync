@@ -11,6 +11,7 @@ dependencies = [
     "neo4j>=5.14.0",
     "rich>=13.0.0",
     "requests>=2.31.0",  # Used by terraform/scripts/configure_connectors.py
+    "kafka-python>=2.0.2",  # Used by configure_connectors.py for partition verification
 ]
 
 [project.optional-dependencies]
