@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Test true CDC by making individual changes and verifying event propagation.
-Tests CREATE, UPDATE, and DELETE events to ensure true event-based CDC is working.
+Test CDC by making individual changes and verifying event propagation.
+Tests CREATE, UPDATE, and DELETE events to ensure event-based CDC is working.
 
-Includes a warm-up phase that ensures the CDC pipeline is actively flowing
-before running tests. This handles Azure Event Hubs metadata connection
-stalls that can cause 30-100+ second delays after idle periods.
+The heartbeat sidecar keeps Event Hubs connections alive, so no warm-up
+phase is needed.
 
 Usage:
     cd terraform
@@ -20,7 +19,6 @@ Usage:
 import os
 import sys
 import time
-import uuid
 from typing import Callable
 from rich.console import Console
 from utils.neo4j_client import Neo4jClient
@@ -51,64 +49,6 @@ def wait_for_condition(
         time.sleep(poll_interval_seconds)
 
 
-def warm_up_pipeline(source: Neo4jClient, target: Neo4jClient) -> bool:
-    """
-    Send a disposable event through the CDC pipeline and wait for it to arrive.
-    This ensures the Kafka Connect producer/consumer connections to Azure Event
-    Hubs are active before running the actual tests.
-
-    Returns True if warm-up succeeded.
-    """
-    warmup_id = str(uuid.uuid4())[:8]
-    warmup_label = f"_CDCWarmUp"
-
-    console.print("[dim]Warming up CDC pipeline...[/dim]")
-    console.print("[dim]  (Azure Event Hubs may need up to 2 min to establish connections)[/dim]")
-
-    source.execute_write(
-        f"CREATE (w:{warmup_label} {{wid: $wid}})",
-        {"wid": warmup_id}
-    )
-
-    def check_warmup():
-        try:
-            result = target.execute_read(
-                f"MATCH (w:{warmup_label} {{wid: $wid}}) RETURN w",
-                {"wid": warmup_id}
-            )
-            return len(result) >= 1
-        except Exception:
-            return False
-
-    start = time.time()
-    last_status = start
-    success = False
-    while True:
-        elapsed = time.time() - start
-        if check_warmup():
-            success = True
-            break
-        if elapsed >= 180:
-            break
-        if time.time() - last_status >= 15:
-            console.print(f"[dim]  Still warming up... {int(elapsed)}s[/dim]")
-            last_status = time.time()
-        time.sleep(1)
-
-    # Clean up warmup node on master (CDC will propagate the delete)
-    source.execute_write(
-        f"MATCH (w:{warmup_label} {{wid: $wid}}) DELETE w",
-        {"wid": warmup_id}
-    )
-
-    if success:
-        console.print(f"[dim]  Pipeline warm ({int(time.time() - start)}s). Ready to test.[/dim]\n")
-    else:
-        console.print(f"[bold red]  Pipeline did not respond after 180s.[/bold red]")
-
-    return success
-
-
 def main():
     """Run event-level CDC tests."""
 
@@ -134,7 +74,6 @@ def main():
     # Clean up any leftover test nodes from previous runs
     console.print("[dim]Cleaning up leftover test data...[/dim]")
     source.execute_write("MATCH (p:Person {id: 9999}) DELETE p")
-    source.execute_write("MATCH (w:_CDCWarmUp) DELETE w")
 
     def check_cleanup():
         try:
@@ -147,11 +86,6 @@ def main():
     if not check_cleanup():
         wait_for_condition(check_cleanup, timeout_seconds=10)
     console.print("[dim]  Done.[/dim]\n")
-
-    # Warm up the pipeline before running tests
-    if not warm_up_pipeline(source, target):
-        console.print("[bold red]CDC pipeline is not responding. Check connector status.[/bold red]")
-        sys.exit(1)
 
     # Test 1: CREATE event
     console.print("[bold cyan]Test 1: CREATE Event[/bold cyan]")

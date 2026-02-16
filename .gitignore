@@ -5,7 +5,7 @@
 
 # Terraform — state and vars contain secrets
 terraform/.terraform/
-terraform/.terraform.lock.hcl
+# Note: .terraform.lock.hcl is intentionally committed for reproducibility
 terraform/terraform.tfstate
 terraform/terraform.tfstate.*
 terraform/*.tfvars

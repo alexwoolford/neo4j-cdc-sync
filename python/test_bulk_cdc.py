@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """
-Automated bulk CDC test: warm pipeline, run social_network generator, verify exact replication.
+Automated bulk CDC test: run social_network generator, verify exact replication.
 
 This test ensures zero data loss: all 110 nodes and 445 relationships created by
 the social_network generator must appear on the subscriber.
+
+The heartbeat sidecar keeps Event Hubs connections alive, so no warm-up
+phase is needed.
 
 Usage:
     cd terraform
@@ -18,14 +21,15 @@ Usage:
 import os
 import sys
 import time
-import subprocess
 from pathlib import Path
 
 from rich.console import Console
 from utils.neo4j_client import Neo4jClient
 
-# Import warm_up_pipeline from test_live_cdc
-from test_live_cdc import warm_up_pipeline
+# Add generators to path so we can import social_network directly
+_generators_path = Path(__file__).parent.parent / "generators"
+if str(_generators_path) not in sys.path:
+    sys.path.insert(0, str(_generators_path))
 
 console = Console()
 
@@ -52,38 +56,17 @@ def clear_databases(source: Neo4jClient, target: Neo4jClient) -> None:
 
 
 def run_social_network_generator() -> bool:
-    """Run the social_network.py generator script."""
+    """Run the social_network generator by importing and calling directly."""
     console.print("[bold blue]Running social_network generator...[/bold blue]")
 
-    # Find the generators directory relative to this script
-    repo_root = Path(__file__).parent.parent
-    generator_path = repo_root / "generators" / "social_network.py"
-
-    if not generator_path.exists():
-        console.print(f"[red]Error: Generator not found at {generator_path}[/red]")
-        return False
-
     try:
-        result = subprocess.run(
-            [sys.executable, str(generator_path)],
-            cwd=str(repo_root / "generators"),
-            env=os.environ.copy(),
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
-
-        if result.returncode != 0:
-            console.print(f"[red]Generator failed with exit code {result.returncode}[/red]")
-            if result.stderr:
-                console.print(f"[red]{result.stderr}[/red]")
-            return False
-
+        # Import and run the generator directly (faster, better error messages)
+        import social_network
+        social_network.main()
         console.print("[green]Generator completed successfully[/green]\n")
         return True
-
-    except subprocess.TimeoutExpired:
-        console.print("[red]Generator timed out after 120s[/red]")
+    except ImportError as e:
+        console.print(f"[red]Error: Could not import social_network generator: {e}[/red]")
         return False
     except Exception as e:
         console.print(f"[red]Error running generator: {e}[/red]")
@@ -203,21 +186,16 @@ def main() -> int:
 
     try:
         # Step 1: Clear databases
+        console.print("[bold blue]Step 1: Clearing databases...[/bold blue]")
         clear_databases(source, target)
 
-        # Step 2: Warm up the pipeline
-        console.print("[bold blue]Step 1: Warming up CDC pipeline...[/bold blue]")
-        if not warm_up_pipeline(source, target):
-            console.print("[bold red]Pipeline warm-up failed. Check connector status.[/bold red]")
-            return 1
-
-        # Step 3: Run the generator
+        # Step 2: Run the generator
         console.print("[bold blue]Step 2: Running bulk data generator...[/bold blue]")
         if not run_social_network_generator():
             console.print("[bold red]Generator failed.[/bold red]")
             return 1
 
-        # Step 4: Wait for propagation
+        # Step 3: Wait for propagation
         console.print("[bold blue]Step 3: Verifying CDC propagation...[/bold blue]")
         success, counts, elapsed = wait_for_propagation(source, target)
 

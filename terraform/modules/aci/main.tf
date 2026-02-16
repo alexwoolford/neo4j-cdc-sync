@@ -135,6 +135,25 @@ resource "azurerm_container_group" "kafka_connect" {
     }
   }
 
+  # Heartbeat sidecar — writes a small CDC event every 30s to keep
+  # Event Hubs connections alive (prevents silent idle disconnects)
+  container {
+    name   = "heartbeat"
+    image  = var.heartbeat_image_name
+    cpu    = 0.25
+    memory = 0.5
+
+    environment_variables = {
+      HEARTBEAT_INTERVAL = "30"
+      NEO4J_USERNAME     = "neo4j"
+    }
+
+    secure_environment_variables = {
+      NEO4J_URI      = var.master_neo4j_uri
+      NEO4J_PASSWORD = var.master_neo4j_password
+    }
+  }
+
   # Pull image from ACR using credentials
   image_registry_credential {
     server   = var.acr_login_server
@@ -151,8 +170,9 @@ resource "azurerm_container_group" "kafka_connect" {
 # Deploy Neo4j CDC connectors via Python script
 # Uses PUT for idempotent deployment, verifies tasks reach RUNNING state
 resource "null_resource" "deploy_connectors" {
-  # Trigger redeployment if credentials or URIs change
+  # Trigger redeployment if credentials, URIs, or the script itself changes
   triggers = {
+    script_hash    = filesha256("${path.module}/../../scripts/configure_connectors.py")
     master_uri     = var.master_neo4j_uri
     subscriber_uri = var.subscriber_neo4j_uri
     eventhubs_fqdn = var.event_hubs_fqdn
@@ -164,13 +184,11 @@ resource "null_resource" "deploy_connectors" {
 
     # Pass secrets via environment variables (never written to disk)
     environment = {
-      CONNECT_URL                  = "http://${azurerm_container_group.kafka_connect.ip_address}:8083"
-      MASTER_NEO4J_URI            = var.master_neo4j_uri
-      MASTER_NEO4J_PASSWORD       = var.master_neo4j_password
-      SUBSCRIBER_NEO4J_URI        = var.subscriber_neo4j_uri
-      SUBSCRIBER_NEO4J_PASSWORD   = var.subscriber_neo4j_password
-      EVENT_HUBS_FQDN             = var.event_hubs_fqdn
-      EVENT_HUBS_CONNECTION_STRING = var.event_hubs_connection_string
+      CONNECT_URL               = "http://${azurerm_container_group.kafka_connect.ip_address}:8083"
+      MASTER_NEO4J_URI          = var.master_neo4j_uri
+      MASTER_NEO4J_PASSWORD     = var.master_neo4j_password
+      SUBSCRIBER_NEO4J_URI      = var.subscriber_neo4j_uri
+      SUBSCRIBER_NEO4J_PASSWORD = var.subscriber_neo4j_password
     }
   }
 

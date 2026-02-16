@@ -60,3 +60,28 @@ resource "null_resource" "build_and_push_image" {
 
   depends_on = [azurerm_container_registry.acr]
 }
+
+# Build and push the heartbeat sidecar image
+# Lightweight Python container that keeps CDC pipeline connections alive
+resource "null_resource" "build_and_push_heartbeat" {
+  triggers = {
+    dockerfile_sha = filesha256("${path.root}/../heartbeat/Dockerfile")
+    script_sha     = filesha256("${path.root}/../heartbeat/heartbeat.py")
+    requirements   = filesha256("${path.root}/../heartbeat/requirements.txt")
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -e
+      echo "Building heartbeat sidecar image..."
+      az acr build \
+        --registry ${azurerm_container_registry.acr.name} \
+        --image cdc-heartbeat:latest \
+        --platform linux/amd64 \
+        ${path.root}/../heartbeat
+      echo "Heartbeat image built and pushed to ACR"
+    EOT
+  }
+
+  depends_on = [azurerm_container_registry.acr]
+}

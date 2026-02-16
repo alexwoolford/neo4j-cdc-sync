@@ -10,7 +10,7 @@ Neo4j Aura (master, CDC-enabled)
                 → Neo4j Aura (subscriber)
 ```
 
-Kafka Connect runs on Azure Container Instance. The Docker image (with Neo4j Connector 5.2.0) is built and pushed to Azure Container Registry as part of the deploy.
+Kafka Connect runs on Azure Container Instance alongside a heartbeat sidecar that keeps Event Hubs connections alive. The Docker images are built and pushed to Azure Container Registry as part of the deploy.
 
 All resources are co-located in the same Azure region as the Aura instances.
 
@@ -63,35 +63,6 @@ The Kafka Connect REST API at port 8083 allows anyone who finds your IP to:
 
 ## Deploy
 
-### Quick Start (Recommended)
-
-Use the automated deployment script with pre-flight checks:
-
-```bash
-# 1. Create terraform.tfvars from template
-cd terraform
-cp terraform.tfvars.example terraform.tfvars
-
-# 2. Edit terraform.tfvars and add your Aura API credentials
-#    Get credentials from: https://console.neo4j.io → Account → API Keys
-
-# 3. Run deployment script
-cd ..
-./deploy.sh
-```
-
-The `deploy.sh` script will:
-- ✓ Verify Azure CLI authentication
-- ✓ Validate Python dependencies (rich, neo4j, requests, kafka-python)
-- ✓ Check Terraform configuration
-- ✓ Display security warning about port 8083
-- ✓ Deploy infrastructure via Terraform
-- ✓ Provide next steps
-
-### Manual Deployment (Advanced)
-
-If you prefer manual control:
-
 ```bash
 # 1. Activate conda environment
 conda activate neo4j-cdc-sync
@@ -99,10 +70,16 @@ conda activate neo4j-cdc-sync
 # 2. Authenticate with Azure
 az login
 
-# 3. Configure and deploy
+# 3. Configure terraform
 cd terraform
 cp terraform.tfvars.example terraform.tfvars
-# Edit terraform.tfvars with your credentials
+# Edit terraform.tfvars and add your Aura API credentials
+# Get credentials from: https://console.neo4j.io → Account → API Keys
+
+# 4. Optional: run pre-flight checks
+python ../python/preflight.py
+
+# 5. Deploy
 terraform init
 terraform apply
 ```
@@ -112,7 +89,7 @@ terraform apply
 - Initial deployment: ~8 minutes
 - Subsequent deployments (cached): ~3-4 minutes
 
-Terraform provisions two Aura instances, an Event Hubs namespace with single-partition topic, a container registry, builds the Docker image in Azure, starts a Kafka Connect container, and deploys the source and sink connectors with automatic partition verification.
+Terraform provisions two Aura instances, an Event Hubs namespace with single-partition topic, a container registry, builds the Docker images in Azure, and starts a container group with Kafka Connect + heartbeat sidecar. The source and sink connectors are deployed automatically.
 
 ## Get credentials
 
@@ -190,8 +167,8 @@ cd ../python
 python test_live_cdc.py
 ```
 
-- **Warm-up**: If the pipeline has been idle, the script waits for Event Hubs connections to come back (up to ~2 min). Tell the audience this is expected with Azure Event Hubs after idle.
-- **Tests**: CREATE, UPDATE, and DELETE are run in sequence. Each step shows propagation time (typically under 2 seconds).
+- The heartbeat sidecar keeps the pipeline warm, so tests start immediately — no warm-up delay.
+- CREATE, UPDATE, and DELETE are run in sequence. Each step shows propagation time (typically under 2 seconds).
 
 **4. Optional: show it live in the Aura consoles**
 
@@ -230,8 +207,12 @@ terraform/
 kafka-connect/
   Dockerfile                  # Custom image with Neo4j Connector 5.2.0
 
-python/                       # Optional verification and test scripts
-generators/                   # Optional sample data generators
+heartbeat/
+  heartbeat.py                # Keeps Event Hubs connections alive
+  Dockerfile                  # Lightweight Python sidecar image
+
+python/                       # Verification and test scripts
+generators/                   # Sample data generators
 ```
 
 ## Secret scanning
@@ -262,7 +243,7 @@ The `.gitignore` excludes `.env`, `*.tfvars`, `terraform.tfstate*`, and generate
 **Error: "Python dependencies missing"**
 - Activate environment: `conda activate neo4j-cdc-sync`
 - Or create it: `conda env create -f environment.yml`
-- Verify: `python3 -c "import rich, neo4j, requests, kafka"`
+- Verify: `python3 -c "import rich, neo4j, requests"`
 
 **Error: "terraform.tfvars not found or incomplete"**
 - Copy template: `cp terraform/terraform.tfvars.example terraform/terraform.tfvars`
@@ -296,7 +277,7 @@ Event Hubs metadata timeout (known issue). Restart the task:
 curl -X POST $KAFKA_CONNECT/connectors/neo4j-master-publisher/tasks/0/restart
 ```
 
-The deploy script automatically restarts once, but you can manually restart if needed.
+The connector deployment script automatically restarts once, but you may need to restart manually if idle for a while.
 
 ### CDC Sync Issues
 
@@ -305,9 +286,6 @@ The deploy script automatically restarts once, but you can manually restart if n
 This is the **multi-partition issue** — the most common CDC failure mode.
 
 **Cause:** Event Hubs topic has >1 partition, breaking CDC ordering. Relationships arrive before their nodes, causing foreign key violations.
-
-**Diagnosis:**
-The `configure_connectors.py` script checks partition count automatically. If it warned during deployment, follow the fix below.
 
 **Fix:**
 ```bash
@@ -328,10 +306,22 @@ cd python
 python verify_cdc.py
 ```
 
+**Nothing replicating (target shows 0 nodes)**
+
+The heartbeat sidecar keeps connections alive, so this should not happen under normal operation. If it does:
+- Check the heartbeat container logs: Azure Portal → Container Group → Containers → heartbeat → Logs
+- If the heartbeat container is not running, restart the container group: `terraform apply`
+- As a quick fix, restart connectors manually:
+
+```bash
+curl -X POST $KAFKA_CONNECT/connectors/neo4j-master-publisher/tasks/0/restart
+curl -X POST $KAFKA_CONNECT/connectors/neo4j-subscriber-consumer/tasks/0/restart
+```
+
 **Slow propagation (>5 seconds per event)**
 
-- Azure Event Hubs needs 1-2 minutes after idle to establish connections
-- Run warmup: `python test_live_cdc.py` (includes automatic warm-up phase)
+- On first deploy, Event Hubs needs 1-2 minutes to establish connections
+- The heartbeat sidecar keeps connections warm after that — sustained latency should be 1-2 seconds
 - Check connectors are RUNNING: `curl $KAFKA_CONNECT/connectors/neo4j-master-publisher/status`
 
 **Sink connector error: "Node not found"**
@@ -360,4 +350,4 @@ cd terraform
 terraform apply
 ```
 
-Or use the `./deploy.sh` script which checks this automatically.
+You can run `python python/preflight.py` first to verify all prerequisites are met.

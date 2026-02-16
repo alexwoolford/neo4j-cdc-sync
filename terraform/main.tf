@@ -73,6 +73,7 @@ module "kafka_connect_aci" {
   resource_group_name         = azurerm_resource_group.main.name
   location                    = azurerm_resource_group.main.location
   image_name                  = module.acr.image_name
+  heartbeat_image_name        = module.acr.heartbeat_image_name
   acr_login_server            = module.acr.acr_login_server
   acr_admin_username          = module.acr.acr_admin_username
   acr_admin_password          = module.acr.acr_admin_password

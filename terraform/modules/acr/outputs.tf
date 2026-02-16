@@ -23,3 +23,8 @@ output "acr_id" {
   description = "Resource ID of the container registry"
   value       = azurerm_container_registry.acr.id
 }
+
+output "heartbeat_image_name" {
+  description = "Full heartbeat image name in ACR"
+  value       = "${azurerm_container_registry.acr.login_server}/cdc-heartbeat:latest"
+}

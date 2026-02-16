@@ -30,87 +30,6 @@ def wait_for_connect(url: str, timeout: int = 180) -> None:
     raise TimeoutError(f"Kafka Connect not ready after {timeout}s")
 
 
-def verify_topic_partitions(
-    bootstrap_servers: str,
-    sasl_connection_string: str,
-    topic: str = "cdc-all",
-    expected_partitions: int = 1
-) -> None:
-    """
-    Verify Event Hubs topic has exactly the expected partition count.
-
-    Multi-partition topics break CDC ordering guarantees: relationships may
-    arrive before their nodes, causing sink connector failures.
-
-    Args:
-        bootstrap_servers: Event Hubs FQDN:9093
-        sasl_connection_string: Event Hubs connection string
-        topic: Topic name to verify
-        expected_partitions: Expected partition count (default: 1)
-
-    Raises:
-        RuntimeError: If partition count doesn't match expected
-    """
-    print(f"Verifying topic '{topic}' partition count...")
-
-    try:
-        from kafka import KafkaAdminClient
-        from kafka.errors import UnknownTopicOrPartitionError
-
-        # Connect to Event Hubs using Kafka protocol
-        admin_client = KafkaAdminClient(
-            bootstrap_servers=bootstrap_servers,
-            security_protocol="SASL_SSL",
-            sasl_mechanism="PLAIN",
-            sasl_plain_username="$ConnectionString",
-            sasl_plain_password=sasl_connection_string,
-            request_timeout_ms=30000,
-        )
-
-        # Get topic metadata
-        try:
-            metadata = admin_client.describe_topics([topic])
-
-            if topic not in metadata:
-                # Topic doesn't exist yet - connector will create it
-                print(f"  Topic '{topic}' not yet created - connector will create with {expected_partitions} partition(s)")
-                return
-
-            actual_partitions = len(metadata[topic]["partitions"])
-
-            if actual_partitions == expected_partitions:
-                print(f"  ✓ Topic has {actual_partitions} partition(s) (correct)")
-            else:
-                print(f"  ✗ CRITICAL: Topic has {actual_partitions} partition(s), expected {expected_partitions}", file=sys.stderr)
-                print(f"\n{'='*70}", file=sys.stderr)
-                print(f"PARTITION COUNT MISMATCH - CDC WILL NOT WORK CORRECTLY", file=sys.stderr)
-                print(f"{'='*70}", file=sys.stderr)
-                print(f"\nThe '{topic}' topic has {actual_partitions} partitions.", file=sys.stderr)
-                print(f"Neo4j CDC requires exactly {expected_partitions} partition to ensure ordering:", file=sys.stderr)
-                print(f"  - Nodes must arrive BEFORE relationships", file=sys.stderr)
-                print(f"  - Multiple partitions break this guarantee", file=sys.stderr)
-                print(f"  - Sink connector will fail with 'node not found' errors", file=sys.stderr)
-                print(f"\nFix:", file=sys.stderr)
-                print(f"  1. Delete the topic in Azure Portal:", file=sys.stderr)
-                print(f"     Event Hubs namespace → Event Hubs → {topic} → Delete", file=sys.stderr)
-                print(f"  2. Re-run terraform apply (connector will recreate with 1 partition)", file=sys.stderr)
-                print(f"\nOr run: terraform destroy && terraform apply", file=sys.stderr)
-                print(f"{'='*70}\n", file=sys.stderr)
-                raise RuntimeError(f"Topic '{topic}' has {actual_partitions} partitions, expected {expected_partitions}")
-
-        except UnknownTopicOrPartitionError:
-            # Topic doesn't exist - connector will create it
-            print(f"  Topic '{topic}' not yet created - connector will create with {expected_partitions} partition(s)")
-
-    except ImportError:
-        print("  Warning: kafka-python not installed, skipping partition check", file=sys.stderr)
-        print("  Install with: pip install kafka-python>=2.0.2", file=sys.stderr)
-        print("  This check ensures CDC ordering is preserved (1 partition required)", file=sys.stderr)
-    except Exception as e:
-        print(f"  Warning: Could not verify partition count: {e}", file=sys.stderr)
-        print(f"  Continuing deployment, but CDC may fail if topic has >1 partition", file=sys.stderr)
-
-
 def deploy_connector(url: str, name: str, config: dict) -> None:
     """Deploy or update a connector using PUT (idempotent)."""
     print(f"Deploying connector: {name}")
@@ -261,22 +180,6 @@ def main() -> int:
     try:
         # Wait for Kafka Connect to be ready
         wait_for_connect(connect_url)
-
-        # CRITICAL: Verify partition count before deploying connectors
-        # Multi-partition topics break CDC ordering (relationships before nodes)
-        bootstrap_servers = f"{os.environ.get('EVENT_HUBS_FQDN', 'unknown')}:9093"
-        connection_string = os.environ.get('EVENT_HUBS_CONNECTION_STRING', '')
-
-        if bootstrap_servers != 'unknown:9093' and connection_string:
-            verify_topic_partitions(
-                bootstrap_servers=bootstrap_servers,
-                sasl_connection_string=connection_string,
-                topic="cdc-all",
-                expected_partitions=1
-            )
-        else:
-            print("Warning: EVENT_HUBS_FQDN or EVENT_HUBS_CONNECTION_STRING not set", file=sys.stderr)
-            print("Skipping partition verification", file=sys.stderr)
 
         # Build connector configurations
         source_config = build_source_config(master_uri, master_password)

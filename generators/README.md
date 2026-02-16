@@ -24,33 +24,25 @@ Creates a social network graph with people working at companies.
 - `Company` nodes (10): id, name, industry
 - `WORKS_AT` relationships (100): since property
 
-**Important — warm the pipeline first**
+**Usage:**
 
-If the CDC pipeline has been idle, Azure Event Hubs connections can be stale and the bulk load may not replicate. Before running the generator:
+```bash
+cd terraform
+export MASTER_NEO4J_URI=$(terraform output -raw master_neo4j_uri)
+export MASTER_NEO4J_PASSWORD=$(terraform output -raw master_neo4j_password)
+export SUBSCRIBER_NEO4J_URI=$(terraform output -raw subscriber_neo4j_uri)
+export SUBSCRIBER_NEO4J_PASSWORD=$(terraform output -raw subscriber_neo4j_password)
 
-1. **Warm up the pipeline** (from repo root):
-   ```bash
-   cd terraform
-   export MASTER_NEO4J_URI=$(terraform output -raw master_neo4j_uri)
-   export MASTER_NEO4J_PASSWORD=$(terraform output -raw master_neo4j_password)
-   export SUBSCRIBER_NEO4J_URI=$(terraform output -raw subscriber_neo4j_uri)
-   export SUBSCRIBER_NEO4J_PASSWORD=$(terraform output -raw subscriber_neo4j_password)
-   cd ../python
-   python test_live_cdc.py
-   ```
-   This ensures the connectors are talking to Event Hubs before you do a big write.
+cd ../generators
+python social_network.py
+```
 
-2. **Run the generator**:
-   ```bash
-   cd ../generators
-   python social_network.py
-   ```
+The heartbeat sidecar keeps Event Hubs connections alive, so you can run the generator at any time. A bulk load of 110 nodes + 445 relationships typically propagates within 1-2 minutes. Verify with:
 
-3. **Wait for propagation** — a bulk load of 110 nodes + 445 relationships can take 1–2 minutes to flow through. Then verify:
-   ```bash
-   cd ../python
-   python verify_cdc.py
-   ```
+```bash
+cd ../python
+python verify_cdc.py
+```
 
 ## Troubleshooting: Missing Relationships
 

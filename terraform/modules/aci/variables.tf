@@ -18,6 +18,11 @@ variable "image_name" {
   type        = string
 }
 
+variable "heartbeat_image_name" {
+  description = "Full image name for the heartbeat sidecar (e.g., myregistry.azurecr.io/cdc-heartbeat:latest)"
+  type        = string
+}
+
 variable "acr_login_server" {
   description = "ACR login server URL"
   type        = string
