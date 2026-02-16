@@ -14,9 +14,21 @@ variable "location" {
 }
 
 variable "sku" {
-  description = "SKU for ACR (Basic, Standard, or Premium)"
+  description = "SKU for ACR (Basic, Standard, or Premium). Geo-replication only applies to Premium."
   type        = string
   default     = "Basic"  # Cheapest option, sufficient for demo
+}
+
+variable "admin_enabled" {
+  description = "Enable admin user for ACR. Required for ACI pull + local docker push in this demo. Set to false in production and use managed identity + az acr build."
+  type        = bool
+  default     = true
+}
+
+variable "georeplication_locations" {
+  description = "Optional list of Azure regions for ACR geo-replication (Premium SKU only). Example: [\"eastus2\"]"
+  type        = list(string)
+  default     = []
 }
 
 variable "neo4j_connector_version" {

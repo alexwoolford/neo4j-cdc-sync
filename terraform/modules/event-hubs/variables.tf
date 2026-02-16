@@ -42,13 +42,13 @@ variable "topics" {
 }
 
 variable "partition_count" {
-  description = "Number of partitions for each Event Hub"
+  description = "Number of partitions for each Event Hub. Use 1 for CDC to ensure strict ordering."
   type        = number
-  default     = 3
+  default     = 1
 
   validation {
-    condition     = var.partition_count >= 2 && var.partition_count <= 32
-    error_message = "Partition count must be between 2 and 32"
+    condition     = var.partition_count >= 1 && var.partition_count <= 32
+    error_message = "Partition count must be between 1 and 32"
   }
 }
 

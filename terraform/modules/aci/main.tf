@@ -44,20 +44,45 @@ resource "azurerm_container_group" "kafka_connect" {
 
       CONNECT_SECURITY_PROTOCOL                    = "SASL_SSL"
       CONNECT_SASL_MECHANISM                       = "PLAIN"
+      CONNECT_METADATA_MAX_AGE_MS                  = "60000"
+      CONNECT_CONNECTIONS_MAX_IDLE_MS              = "120000"
+      CONNECT_RECONNECT_BACKOFF_MS                 = "500"
+      CONNECT_RECONNECT_BACKOFF_MAX_MS             = "5000"
 
+      # Azure Event Hubs drops idle TCP connections after ~4 min without
+      # sending a RST, so the Kafka client doesn't know it's disconnected
+      # until a request times out. These settings keep connections alive:
+      #   - connections.max.idle.ms=120000: close idle connections before
+      #     Event Hubs kills them (2 min < EH's ~4 min threshold)
+      #   - metadata.max.age.ms=60000: refresh metadata every 60s, which
+      #     acts as keepalive traffic on the connection
+      #   - reconnect.backoff: fast reconnect on disconnect
+
+      # Producer settings
       CONNECT_PRODUCER_BOOTSTRAP_SERVERS           = "${var.event_hubs_fqdn}:9093"
       CONNECT_PRODUCER_SECURITY_PROTOCOL           = "SASL_SSL"
       CONNECT_PRODUCER_SASL_MECHANISM              = "PLAIN"
-      CONNECT_PRODUCER_REQUEST_TIMEOUT_MS          = "30000"
-      CONNECT_PRODUCER_MAX_BLOCK_MS                = "30000"
+      CONNECT_PRODUCER_REQUEST_TIMEOUT_MS          = "60000"
+      CONNECT_PRODUCER_MAX_BLOCK_MS                = "60000"
+      CONNECT_PRODUCER_LINGER_MS                   = "0"
+      CONNECT_PRODUCER_METADATA_MAX_AGE_MS         = "60000"
+      CONNECT_PRODUCER_CONNECTIONS_MAX_IDLE_MS     = "120000"
+      CONNECT_PRODUCER_RECONNECT_BACKOFF_MS        = "500"
+      CONNECT_PRODUCER_RECONNECT_BACKOFF_MAX_MS    = "5000"
+      CONNECT_PRODUCER_RETRY_BACKOFF_MS            = "500"
 
+      # Consumer settings
       CONNECT_CONSUMER_BOOTSTRAP_SERVERS           = "${var.event_hubs_fqdn}:9093"
       CONNECT_CONSUMER_SECURITY_PROTOCOL           = "SASL_SSL"
       CONNECT_CONSUMER_SASL_MECHANISM              = "PLAIN"
-      CONNECT_CONSUMER_REQUEST_TIMEOUT_MS          = "30000"
+      CONNECT_CONSUMER_REQUEST_TIMEOUT_MS          = "60000"
       CONNECT_CONSUMER_SESSION_TIMEOUT_MS          = "30000"
       CONNECT_CONSUMER_HEARTBEAT_INTERVAL_MS       = "10000"
       CONNECT_CONSUMER_GROUP_ID                    = "neo4j-cdc-consumer"
+      CONNECT_CONSUMER_METADATA_MAX_AGE_MS         = "60000"
+      CONNECT_CONSUMER_CONNECTIONS_MAX_IDLE_MS     = "120000"
+      CONNECT_CONSUMER_RECONNECT_BACKOFF_MS        = "500"
+      CONNECT_CONSUMER_RECONNECT_BACKOFF_MAX_MS    = "5000"
 
       CONNECT_KEY_CONVERTER                        = "org.apache.kafka.connect.json.JsonConverter"
       CONNECT_VALUE_CONVERTER                      = "org.apache.kafka.connect.json.JsonConverter"

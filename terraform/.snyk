@@ -1,0 +1,13 @@
+# Snyk IaC policy: accepted risks for this demo
+# See https://docs.snyk.io/developer-tools/snyk-cli/scan-and-maintain-projects-using-the-cli/snyk-cli-for-iac/iac-ignores-using-the-.snyk-policy-file
+version: v1.19.0
+
+ignore:
+  SNYK-CC-AZURE-594:
+    - 'modules/acr/main.tf > *':
+        reason: 'Demo uses ACI image_registry_credential and local docker push; both require admin credentials. For production use admin_enabled = false with managed identity + az acr build.'
+        expires: 2027-02-15T00:00:00.000Z
+  SNYK-CC-AZURE-595:
+    - 'modules/acr/main.tf > *':
+        reason: 'Geo-replication requires Premium SKU (cost). Default is Basic. Use sku = "Premium" and georeplication_locations when higher availability is needed.'
+        expires: 2027-02-15T00:00:00.000Z

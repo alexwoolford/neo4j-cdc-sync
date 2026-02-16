@@ -1,8 +1,13 @@
 """Neo4j client utility for database operations."""
 
 from typing import Dict, Any, List, Optional
+import logging
 from neo4j import GraphDatabase, Driver
 from neo4j.exceptions import Neo4jError
+
+# Suppress Neo4j driver notification warnings about non-existent labels/properties
+# (expected when polling a subscriber database that hasn't received data yet)
+logging.getLogger("neo4j.notifications").setLevel(logging.ERROR)
 
 
 class Neo4jClient:

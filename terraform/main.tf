@@ -45,7 +45,8 @@ module "event_hubs" {
   sku                    = var.event_hubs_sku
   capacity               = var.event_hubs_capacity
   topics                 = var.cdc_topics
-  partition_count        = 3
+  # Single partition ensures strict ordering: nodes arrive before relationships
+  partition_count        = 1
   message_retention_days = 7
 
   tags = var.tags

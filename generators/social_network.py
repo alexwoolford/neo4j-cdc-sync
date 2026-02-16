@@ -86,11 +86,10 @@ def main():
         """)
         console.print("[green]Companies created successfully[/green]\n")
 
-        # Create people and relationships
-        console.print("[bold blue]Creating 100 people with relationships...[/bold blue]")
+        # Create people (nodes only) so CDC has all nodes before relationship events
+        console.print("[bold blue]Creating 100 people...[/bold blue]")
         client.execute_write("""
             UNWIND range(1, 100) AS id
-            MATCH (c:Company {id: (id % 10) + 1})
             CREATE (p:Person {
                 id: id,
                 name: 'Person ' + toString(id),
@@ -103,6 +102,14 @@ def main():
                     ELSE 'Operations'
                 END
             })
+        """)
+        console.print("[green]People created successfully[/green]\n")
+
+        # Create WORKS_AT relationships (after all nodes exist — helps CDC ordering)
+        console.print("[bold blue]Creating WORKS_AT relationships...[/bold blue]")
+        client.execute_write("""
+            UNWIND range(1, 100) AS id
+            MATCH (p:Person {id: id}), (c:Company {id: (id % 10) + 1})
             CREATE (p)-[:WORKS_AT {
                 since: date({year: 2015 + (id % 8), month: (id % 12) + 1, day: 1}),
                 role: CASE id % 3
@@ -112,7 +119,7 @@ def main():
                 END
             }]->(c)
         """)
-        console.print("[green]People and relationships created successfully[/green]\n")
+        console.print("[green]WORKS_AT relationships created successfully[/green]\n")
 
         # Create some KNOWS relationships between people
         console.print("[bold blue]Creating social connections between people...[/bold blue]")

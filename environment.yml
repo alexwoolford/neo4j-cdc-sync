@@ -1,0 +1,9 @@
+name: neo4j-cdc-sync
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - -e ./python  # Install project and all dependencies from pyproject.toml

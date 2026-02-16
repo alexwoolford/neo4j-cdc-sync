@@ -20,7 +20,18 @@ All resources are co-located in the same Azure region as the Aura instances.
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) — authenticated via `az login`
 - [Docker](https://docs.docker.com/get-docker/) — for building the Kafka Connect image
 - [Neo4j Aura API credentials](https://console.neo4j.io) — Account > API Keys > Create New API Key
-- Python 3.10+ (optional, for verification scripts)
+- [Conda](https://docs.conda.io/en/latest/miniconda.html) or [Mamba](https://mamba.readthedocs.io/) — for Python environment
+
+## Setup
+
+Create and activate the conda environment:
+
+```bash
+conda env create -f environment.yml
+conda activate neo4j-cdc-sync
+```
+
+This installs Python 3.11 and all required dependencies (neo4j driver, requests, rich).
 
 ## Deploy
 
@@ -74,21 +85,66 @@ curl -s $KAFKA_CONNECT/connectors/neo4j-subscriber-consumer/status | jq '.connec
 
 Both should report `"RUNNING"`.
 
-Write a node to the master and check that it appears on the subscriber:
+Run the CDC test script to verify CREATE, UPDATE, and DELETE events propagate:
 
 ```bash
-MASTER_URI=$(terraform output -raw master_neo4j_uri)
-MASTER_PW=$(terraform output -raw master_neo4j_password)
-SUB_URI=$(terraform output -raw subscriber_neo4j_uri)
-SUB_PW=$(terraform output -raw subscriber_neo4j_password)
-
-# Write to master
-cypher-shell -a $MASTER_URI -u neo4j -p $MASTER_PW "CREATE (p:Person {name: 'Alice'})"
-
-# Wait a few seconds, then check subscriber
-sleep 10
-cypher-shell -a $SUB_URI -u neo4j -p $SUB_PW "MATCH (p:Person {name: 'Alice'}) RETURN p"
+cd terraform
+export MASTER_NEO4J_URI=$(terraform output -raw master_neo4j_uri)
+export MASTER_NEO4J_PASSWORD=$(terraform output -raw master_neo4j_password)
+export SUBSCRIBER_NEO4J_URI=$(terraform output -raw subscriber_neo4j_uri)
+export SUBSCRIBER_NEO4J_PASSWORD=$(terraform output -raw subscriber_neo4j_password)
+cd ../python
+python test_live_cdc.py
 ```
+
+This tests all CDC event types and reports actual propagation latency (typically 1-2 seconds).
+
+## Demo flow (for presenting to users)
+
+Use this sequence when demonstrating CDC to an audience.
+
+**1. Set the scene**
+
+- Two Neo4j Aura instances: a **master** (source of truth) and a **subscriber** (replica).
+- Changes on the master are streamed in real time to the subscriber via CDC → Event Hubs → Kafka Connect.
+- No polling or batch jobs; each write is captured and replicated as an event.
+
+**2. Show the pipeline is running**
+
+```bash
+cd terraform
+KAFKA_CONNECT=$(terraform output -raw kafka_connect_rest_api)
+curl -s $KAFKA_CONNECT/connectors | jq .
+curl -s $KAFKA_CONNECT/connectors/neo4j-master-publisher/status | jq '.connector.state, .tasks[0].state'
+curl -s $KAFKA_CONNECT/connectors/neo4j-subscriber-consumer/status | jq '.connector.state, .tasks[0].state'
+```
+
+Both connectors should be `"RUNNING"`.
+
+**3. Run the automated CDC test**
+
+```bash
+cd terraform
+export MASTER_NEO4J_URI=$(terraform output -raw master_neo4j_uri)
+export MASTER_NEO4J_PASSWORD=$(terraform output -raw master_neo4j_password)
+export SUBSCRIBER_NEO4J_URI=$(terraform output -raw subscriber_neo4j_uri)
+export SUBSCRIBER_NEO4J_PASSWORD=$(terraform output -raw subscriber_neo4j_password)
+cd ../python
+python test_live_cdc.py
+```
+
+- **Warm-up**: If the pipeline has been idle, the script waits for Event Hubs connections to come back (up to ~2 min). Tell the audience this is expected with Azure Event Hubs after idle.
+- **Tests**: CREATE, UPDATE, and DELETE are run in sequence. Each step shows propagation time (typically under 2 seconds).
+
+**4. Optional: show it live in the Aura consoles**
+
+- Open the **master** instance in [Neo4j Aura Console](https://console.neo4j.io) and run a write, e.g. `CREATE (d:Demo {name: 'Live demo', at: datetime()})`.
+- Open the **subscriber** instance and run `MATCH (d:Demo) RETURN d`. After a second or two, the node appears (with a `SourceEvent` label added by the sink).
+
+**5. Wrap up**
+
+- Emphasize: same graph model, real-time sync, no application code changes on the master; the subscriber is a read replica fed by CDC.
+- Tear down when done: `cd terraform && terraform destroy` to avoid ongoing cost.
 
 ## Tear down
 
@@ -146,12 +202,20 @@ The `.gitignore` excludes `.env`, `*.tfvars`, `terraform.tfstate*`, and generate
 curl -s $KAFKA_CONNECT/connectors/neo4j-master-publisher/tasks/0/status | jq '.trace'
 ```
 
-A common cause is the source task timing out on topic metadata right after deploy. Restart it:
+To restart a failed task:
 
 ```bash
 curl -X POST $KAFKA_CONNECT/connectors/neo4j-master-publisher/tasks/0/restart
 ```
 
+Note: The deploy script automatically restarts the source task after initial deployment to work around an Azure Event Hubs metadata timeout issue.
+
 **Aura region error**: The Aura provider expects region names like `eastus`, not `azure-eastus`. The `azure_region` variable in `variables.tf` is passed directly to both Azure and Aura resources.
 
 **Docker image OS mismatch on Apple Silicon**: The Dockerfile builds with `--platform linux/amd64` to target Azure Container Instances.
+
+**Python dependencies not found**: Make sure the conda environment is activated before running terraform:
+
+```bash
+conda activate neo4j-cdc-sync
+```

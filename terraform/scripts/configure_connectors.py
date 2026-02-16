@@ -82,10 +82,20 @@ def build_source_config(master_uri: str, master_password: str) -> dict:
         "neo4j.authentication.type": "BASIC",
         "neo4j.authentication.basic.username": "neo4j",
         "neo4j.authentication.basic.password": master_password,
+        # Neo4j driver connection settings for reliability
+        "neo4j.connection-timeout": "30s",
+        "neo4j.max-retry-time": "30s",
+        "neo4j.pool.max-connection-pool-size": "10",
+        "neo4j.pool.connection-acquisition-timeout": "60s",
+        "neo4j.pool.max-connection-lifetime": "30m",
+        "neo4j.pool.idle-time-before-connection-test": "1m",
+        # CDC source settings
         "neo4j.source-strategy": "CDC",
         "neo4j.start-from": "EARLIEST",
         "neo4j.cdc.topic.cdc-all.patterns": "(),()-[]-()",
-        "topic.creation.default.partitions": 3,
+        "neo4j.cdc.poll-interval": "1s",
+        # Single partition ensures strict ordering: nodes arrive before relationships
+        "topic.creation.default.partitions": 1,
         "topic.creation.default.replication.factor": 1,
         "key.converter": "org.apache.kafka.connect.json.JsonConverter",
         "value.converter": "org.apache.kafka.connect.json.JsonConverter",
@@ -107,20 +117,31 @@ def build_sink_config(subscriber_uri: str, subscriber_password: str) -> dict:
         "neo4j.authentication.type": "BASIC",
         "neo4j.authentication.basic.username": "neo4j",
         "neo4j.authentication.basic.password": subscriber_password,
+        # Neo4j driver connection settings for reliability
+        "neo4j.connection-timeout": "30s",
+        "neo4j.max-retry-time": "30s",
+        "neo4j.pool.max-connection-pool-size": "10",
+        "neo4j.pool.connection-acquisition-timeout": "60s",
+        "neo4j.pool.max-connection-lifetime": "30m",
+        "neo4j.pool.idle-time-before-connection-test": "1m",
+        # CDC sink settings
         "neo4j.cdc.source-id.topics": "cdc-all",
         "neo4j.cdc.source-id.label-name": "SourceEvent",
         "neo4j.cdc.source-id.property-name": "sourceId",
-        "neo4j.batch-size": "50",
-        "neo4j.batch-timeout": "30s",
+        # Low-latency: flush every event immediately, no batching
+        "neo4j.batch-size": "1",
+        "neo4j.batch-timeout": "0s",
         "neo4j.retry-backoff-ms": "1000",
-        "neo4j.retry-max-attempts": "5",
-        "consumer.override.max.poll.records": "100",
+        "neo4j.retry-max-attempts": "10",
+        # Reduce consumer poll latency
+        "consumer.override.fetch.max.wait.ms": "100",
         "key.converter": "org.apache.kafka.connect.json.JsonConverter",
         "value.converter": "org.apache.kafka.connect.json.JsonConverter",
         "key.converter.schemas.enable": "true",
         "value.converter.schemas.enable": "true",
-        "errors.tolerance": "all",
-        "errors.retry.timeout": "60000",
+        # Fail visibly so we see what's broken
+        "errors.tolerance": "none",
+        "errors.retry.timeout": "120000",
         "errors.retry.delay.max.ms": "10000",
         "errors.log.enable": "true",
         "errors.log.include.messages": "true",
@@ -171,6 +192,19 @@ def main() -> int:
         # Verify connectors are running
         verify_connector(connect_url, "neo4j-master-publisher")
         verify_connector(connect_url, "neo4j-subscriber-consumer")
+
+        # Work around Event Hubs metadata timeout on fresh deploy:
+        # The source task often stalls on its first CDC poll due to slow
+        # topic metadata response. Restarting clears this stall.
+        print("Restarting source task to clear Event Hubs metadata stall...")
+        resp = requests.post(
+            f"{connect_url}/connectors/neo4j-master-publisher/tasks/0/restart",
+            timeout=10
+        )
+        if resp.status_code not in (200, 202, 204):
+            print(f"  Warning: restart returned {resp.status_code}", file=sys.stderr)
+        # Poll until task is RUNNING again (no blind sleep)
+        verify_connector(connect_url, "neo4j-master-publisher")
 
         print("\nAll connectors deployed and running successfully!")
         return 0

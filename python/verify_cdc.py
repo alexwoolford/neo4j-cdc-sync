@@ -130,13 +130,18 @@ def compare_databases(source: Neo4jClient, target: Neo4jClient) -> bool:
     else:
         console.print("[bold red]✗ CDC sync issue detected![/bold red]")
         console.print("[bold yellow]Possible causes:[/bold yellow]")
-        console.print("  1. CDC propagation still in progress (wait a few seconds)")
-        console.print("  2. Connector not running (check: curl http://localhost:8083/connectors)")
-        console.print("  3. Event Hubs connection issue (check connector logs)")
+        console.print("  1. Pipeline was cold during bulk load — warm it first: run python test_live_cdc.py")
+        console.print("  2. Bulk load still propagating — wait 1–2 minutes, then run verify_cdc.py again")
+        console.print("  3. Connector not running or Event Hubs connection stalled (check connector status)")
+        console.print("  4. Topic has multiple partitions — relationships may arrive before nodes")
+        console.print("     Pipeline uses topic.creation.default.partitions=1 for ordering. If the cdc-all")
+        console.print("     topic was created with >1 partition, delete it in Azure Event Hubs and re-apply")
+        console.print("     terraform (or terraform destroy && apply) so the topic is recreated with 1 partition.")
         console.print("\n[bold yellow]Troubleshooting:[/bold yellow]")
-        console.print("  docker logs kafka-connect")
-        console.print("  curl http://localhost:8083/connectors/neo4j-cdc-source/status")
-        console.print("  curl http://localhost:8083/connectors/neo4j-cdc-sink/status")
+        console.print("  cd terraform")
+        console.print("  KAFKA_CONNECT=$(terraform output -raw kafka_connect_rest_api)")
+        console.print("  curl -s $KAFKA_CONNECT/connectors/neo4j-master-publisher/status | jq .")
+        console.print("  curl -s $KAFKA_CONNECT/connectors/neo4j-subscriber-consumer/status | jq .")
         return False
 
 

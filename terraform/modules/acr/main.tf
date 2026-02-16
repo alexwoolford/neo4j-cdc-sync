@@ -16,7 +16,17 @@ resource "azurerm_container_registry" "acr" {
   location            = var.location
   sku                 = var.sku
 
-  admin_enabled = true  # Required for ACI to pull images
+  # Required for ACI image_registry_credential and local docker push in null_resource.
+  # For production: set to false and use managed identity for ACI pull + az acr build for image push.
+  admin_enabled = var.admin_enabled
+
+  dynamic "georeplications" {
+    for_each = var.sku == "Premium" ? var.georeplication_locations : []
+    content {
+      location                = georeplications.value
+      zone_redundancy_enabled = false
+    }
+  }
 
   tags = var.tags
 }

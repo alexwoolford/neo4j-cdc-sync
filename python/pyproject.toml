@@ -10,6 +10,7 @@ authors = [
 dependencies = [
     "neo4j>=5.14.0",
     "rich>=13.0.0",
+    "requests>=2.31.0",  # Used by terraform/scripts/configure_connectors.py
 ]
 
 [project.optional-dependencies]
