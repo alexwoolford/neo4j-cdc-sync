@@ -73,6 +73,9 @@ htmlcov/
 logs/
 kafka-connect/logs/
 
+# Demo / Presentation materials (may contain sensitive info)
+DEMO_PLAYBOOK.md
+
 # Docker & Kafka Connect
 kafka-connect/plugins/*.jar
 kafka-connect/plugins/*.zip

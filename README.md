@@ -2,13 +2,7 @@
 
 Real-time replication between two Neo4j Aura instances using Change Data Capture (CDC), Azure Event Hubs, and Kafka Connect.
 
-```
-Neo4j Aura (master, CDC-enabled)
-    → Neo4j CDC Source Connector
-        → Azure Event Hubs (Kafka API)
-            → Neo4j CDC Sink Connector
-                → Neo4j Aura (subscriber)
-```
+![CDC Architecture](images/architecture.png)
 
 Kafka Connect runs on Azure Container Instance alongside a heartbeat sidecar that keeps Event Hubs connections alive. The Docker images are built and pushed to Azure Container Registry as part of the deploy.
 
@@ -348,4 +342,4 @@ cd terraform
 terraform apply
 ```
 
-You can run `python python/preflight.py` first to verify all prerequisites are met.
+You can run `python ../python/preflight.py` first to verify all prerequisites are met.
