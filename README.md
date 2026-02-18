@@ -18,9 +18,10 @@ All resources are co-located in the same Azure region as the Aura instances.
 
 - [Terraform](https://developer.hashicorp.com/terraform/install) >= 1.5
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) — authenticated via `az login`
-- [Docker](https://docs.docker.com/get-docker/) — for building the Kafka Connect image
 - [Neo4j Aura API credentials](https://console.neo4j.io) — Account > API Keys > Create New API Key
 - [Conda](https://docs.conda.io/en/latest/miniconda.html) or [Mamba](https://mamba.readthedocs.io/) — for Python environment
+
+**Note:** Docker is NOT required. Container images are built in Azure using `az acr build`.
 
 ## Setup
 
@@ -86,7 +87,7 @@ terraform apply
 
 ### Deployment Time
 
-- Initial deployment: ~8 minutes
+- Initial deployment: ~8-10 minutes
 - Subsequent deployments (cached): ~3-4 minutes
 
 Terraform provisions two Aura instances, an Event Hubs namespace with single-partition topic, a container registry, builds the Docker images in Azure, and starts a container group with Kafka Connect + heartbeat sidecar. The source and sink connectors are deployed automatically.
@@ -203,6 +204,8 @@ terraform/
     event-hubs/               # Azure Event Hubs namespace + topics
     acr/                      # Container registry + Docker build/push
     aci/                      # Container instance + connector deployment
+  scripts/
+    configure_connectors.py   # Connector configuration (called by local-exec)
 
 kafka-connect/
   Dockerfile                  # Custom image with Neo4j Connector 5.2.0
@@ -248,11 +251,6 @@ The `.gitignore` excludes `.env`, `*.tfvars`, `terraform.tfstate*`, and generate
 **Error: "terraform.tfvars not found or incomplete"**
 - Copy template: `cp terraform/terraform.tfvars.example terraform/terraform.tfvars`
 - Edit and add your Aura API credentials from https://console.neo4j.io
-
-**Error: "Docker daemon not running" (if using local builds)**
-- Start Docker Desktop
-- Verify: `docker info`
-- Or switch to Azure-side builds (already configured with `az acr build`)
 
 ### Connector Issues
 

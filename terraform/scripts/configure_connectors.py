@@ -13,16 +13,32 @@ import time
 import requests
 
 
-def wait_for_connect(url: str, timeout: int = 180) -> None:
-    """Poll Kafka Connect REST API until it's ready."""
+def wait_for_connect(url: str, timeout: int = 240) -> None:
+    """Poll Kafka Connect REST API until it's ready.
+
+    Timeout is set to 240s (4 minutes) based on observed startup behavior:
+    - Docker healthcheck allows 60s start period
+    - Event Hubs connection + topic creation can take 90-180s on cold start
+    - 240s = 2x healthcheck start period, accommodates Event Hubs delays
+    """
     print(f"Waiting for Kafka Connect at {url}...")
     start = time.time()
+    connection_errors = 0
     while time.time() - start < timeout:
         try:
             resp = requests.get(f"{url}/", timeout=10)
             if resp.status_code == 200:
                 print("Kafka Connect is ready!")
                 return
+        except requests.exceptions.ConnectionError as e:
+            connection_errors += 1
+            # After 3 consecutive connection failures, warn about potential firewall issue
+            if connection_errors >= 3:
+                ip = url.split("//")[1].split(":")[0]
+                print(f"  [!] Connection refused to {ip}:8083")
+                print(f"  [!] If on corporate/guest wifi, port 8083 may be blocked")
+                print(f"  [!] Try: mobile hotspot, VPN, or run from Azure Cloud Shell")
+                connection_errors = 0  # Reset counter to avoid spam
         except requests.RequestException:
             pass
         print(f"  Not ready yet, retrying in 5s... ({int(time.time() - start)}s elapsed)")
