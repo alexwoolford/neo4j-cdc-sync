@@ -61,6 +61,8 @@ module "acr" {
   location                = azurerm_resource_group.main.location
   sku                     = "Basic"
   neo4j_connector_version = var.neo4j_connector_version
+  dockerhub_username      = var.dockerhub_username
+  dockerhub_token         = var.dockerhub_token
 
   tags = var.tags
 }

@@ -1,4 +1,6 @@
-FROM python:3.11-slim
+# Base image is cached in ACR to avoid Docker Hub rate limits
+ARG ACR_LOGIN_SERVER
+FROM ${ACR_LOGIN_SERVER}/python:3.11-slim
 
 LABEL description="CDC pipeline heartbeat — keeps Event Hubs connections alive"
 

@@ -4,6 +4,12 @@ aura_client_id     = "your-aura-client-id"
 aura_client_secret = "your-aura-client-secret"
 aura_tenant_id     = "your-aura-tenant-uuid"
 
+# Required — Docker Hub credentials to avoid image pull rate limits
+# Create a free account at https://hub.docker.com
+# Generate an access token at: Account Settings > Security > Access Tokens
+dockerhub_username = "your-dockerhub-username"
+dockerhub_token    = "your-dockerhub-access-token"
+
 # Optional — defaults are fine for most demos
 # azure_region = "eastus"       # Must be an Aura-supported Azure region
 # project_name = "neo4j-cdc-demo"

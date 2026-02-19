@@ -68,6 +68,17 @@ variable "neo4j_connector_version" {
   default     = "5.2.0"
 }
 
+variable "dockerhub_username" {
+  description = "Docker Hub username for authenticated image pulls (avoids rate limits)"
+  type        = string
+}
+
+variable "dockerhub_token" {
+  description = "Docker Hub access token (Account Settings > Security > Access Tokens)"
+  type        = string
+  sensitive   = true
+}
+
 variable "tags" {
   description = "Tags to apply to all resources"
   type        = map(string)

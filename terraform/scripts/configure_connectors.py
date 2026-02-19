@@ -10,11 +10,17 @@ Verifies connectors reach RUNNING state before exiting.
 import os
 import sys
 import time
+
 import requests
 
 
 def wait_for_connect(url: str, timeout: int = 240) -> None:
-    """Poll Kafka Connect REST API until it's ready.
+    """Poll Kafka Connect REST API until it's ready to accept connectors.
+
+    Probes GET /connectors instead of GET / because the /connectors endpoint
+    requires internal config topics to be initialized, whereas GET / only
+    needs the REST servlet to start. This prevents premature connector
+    deployment attempts.
 
     Timeout is set to 240s (4 minutes) based on observed startup behavior:
     - Docker healthcheck allows 60s start period
@@ -26,19 +32,18 @@ def wait_for_connect(url: str, timeout: int = 240) -> None:
     connection_errors = 0
     while time.time() - start < timeout:
         try:
-            resp = requests.get(f"{url}/", timeout=10)
+            resp = requests.get(f"{url}/connectors", timeout=10)
             if resp.status_code == 200:
                 print("Kafka Connect is ready!")
                 return
-        except requests.exceptions.ConnectionError as e:
+        except requests.exceptions.ConnectionError:
             connection_errors += 1
-            # After 3 consecutive connection failures, warn about potential firewall issue
             if connection_errors >= 3:
                 ip = url.split("//")[1].split(":")[0]
                 print(f"  [!] Connection refused to {ip}:8083")
                 print(f"  [!] If on corporate/guest wifi, port 8083 may be blocked")
                 print(f"  [!] Try: mobile hotspot, VPN, or run from Azure Cloud Shell")
-                connection_errors = 0  # Reset counter to avoid spam
+                connection_errors = 0
         except requests.RequestException:
             pass
         print(f"  Not ready yet, retrying in 5s... ({int(time.time() - start)}s elapsed)")
@@ -46,20 +51,51 @@ def wait_for_connect(url: str, timeout: int = 240) -> None:
     raise TimeoutError(f"Kafka Connect not ready after {timeout}s")
 
 
-def deploy_connector(url: str, name: str, config: dict) -> None:
-    """Deploy or update a connector using PUT (idempotent)."""
+def connector_exists(url: str, name: str) -> bool:
+    """Check if a connector exists (may have been created despite timeout)."""
+    try:
+        resp = requests.get(f"{url}/connectors/{name}/status", timeout=10)
+        return resp.status_code == 200
+    except requests.RequestException:
+        return False
+
+
+def deploy_connector(url: str, name: str, config: dict, retries: int = 3) -> None:
+    """Deploy or update a connector using PUT (idempotent).
+
+    Uses a 120s timeout to accommodate Event Hubs cold starts where topic
+    creation + SASL negotiation + Neo4j driver init can take 60-90s.
+    Retries on timeout, checking if connector was created despite timeout.
+    """
     print(f"Deploying connector: {name}")
-    resp = requests.put(
-        f"{url}/connectors/{name}/config",
-        json=config,
-        headers={"Content-Type": "application/json"},
-        timeout=30
-    )
-    if resp.status_code not in (200, 201):
-        print(f"Error deploying {name}: {resp.status_code}", file=sys.stderr)
-        print(resp.text, file=sys.stderr)
-        raise RuntimeError(f"Failed to deploy connector {name}")
-    print(f"  Connector {name} deployed successfully")
+    last_error = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.put(
+                f"{url}/connectors/{name}/config",
+                json=config,
+                headers={"Content-Type": "application/json"},
+                timeout=120
+            )
+            if resp.status_code in (200, 201):
+                print(f"  Connector {name} deployed successfully")
+                return
+            print(f"Error deploying {name}: {resp.status_code}", file=sys.stderr)
+            print(resp.text, file=sys.stderr)
+            raise RuntimeError(f"Failed to deploy connector {name}")
+
+        except requests.exceptions.Timeout:
+            print(f"  Timeout on attempt {attempt}/{retries}, checking if connector was created...")
+            if connector_exists(url, name):
+                print(f"  Connector {name} exists (created despite timeout)")
+                return
+            last_error = f"Timeout deploying connector {name} after {attempt} attempts"
+            if attempt < retries:
+                print(f"  Retrying in 15s...")
+                time.sleep(15)
+
+    raise RuntimeError(last_error)
 
 
 def verify_connector(url: str, name: str, timeout: int = 60) -> None:

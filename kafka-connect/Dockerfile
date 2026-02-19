@@ -1,5 +1,7 @@
 # Production-grade Kafka Connect image with Neo4j connector pre-installed
-FROM confluentinc/cp-kafka-connect:7.5.0
+# Base image is cached in ACR to avoid Docker Hub rate limits
+ARG ACR_LOGIN_SERVER
+FROM ${ACR_LOGIN_SERVER}/confluentinc/cp-kafka-connect:7.5.0
 
 # Metadata
 LABEL maintainer="Neo4j CDC Demo"

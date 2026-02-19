@@ -84,7 +84,7 @@ terraform apply
 - Initial deployment: ~8-10 minutes
 - Subsequent deployments (cached): ~3-4 minutes
 
-Terraform provisions two Aura instances, an Event Hubs namespace with single-partition topic, a container registry, builds the Docker images in Azure, and starts a container group with Kafka Connect + heartbeat sidecar. The source and sink connectors are deployed automatically.
+Terraform provisions two Aura instances, an Event Hubs namespace with single-partition topic, and a container registry. Base images (Confluent Kafka Connect, Python) are imported into ACR from Docker Hub using `az acr import` -- this is a server-side Azure operation that avoids Docker Hub rate limits. The custom images are then built in Azure and the container group (Kafka Connect + heartbeat sidecar) is started. Connectors are deployed automatically.
 
 ## Get credentials
 
@@ -129,6 +129,8 @@ python test_live_cdc.py
 This tests all CDC event types and reports actual propagation latency (typically 1-2 seconds).
 
 ## Demo flow (for presenting to users)
+
+**Video Walkthrough:** [Watch a complete demo of the CDC pipeline](video/cdc-event-hubs-demo.mp4) showing real-time replication from master to subscriber including the automated CDC test with latency measurements.
 
 Use this sequence when demonstrating CDC to an audience.
 

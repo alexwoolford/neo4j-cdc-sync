@@ -31,12 +31,61 @@ resource "azurerm_container_registry" "acr" {
   tags = var.tags
 }
 
+# Import base images from Docker Hub into ACR to avoid rate limits during builds
+# Uses Docker Hub credentials for authenticated pulls (200 pulls/6h vs 100 anonymous)
+resource "null_resource" "import_kafka_connect_base" {
+  triggers = {
+    registry = azurerm_container_registry.acr.name
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -e
+      echo "Importing Confluent Kafka Connect base image into ACR..."
+      az acr import \
+        --name ${azurerm_container_registry.acr.name} \
+        --source docker.io/confluentinc/cp-kafka-connect:7.5.0 \
+        --image confluentinc/cp-kafka-connect:7.5.0 \
+        --username ${var.dockerhub_username} \
+        --password ${var.dockerhub_token} \
+        --force
+      echo "Base image imported successfully"
+    EOT
+  }
+
+  depends_on = [azurerm_container_registry.acr]
+}
+
+resource "null_resource" "import_python_base" {
+  triggers = {
+    registry = azurerm_container_registry.acr.name
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      set -e
+      echo "Importing Python base image into ACR..."
+      az acr import \
+        --name ${azurerm_container_registry.acr.name} \
+        --source docker.io/library/python:3.11-slim \
+        --image python:3.11-slim \
+        --username ${var.dockerhub_username} \
+        --password ${var.dockerhub_token} \
+        --force
+      echo "Base image imported successfully"
+    EOT
+  }
+
+  depends_on = [azurerm_container_registry.acr]
+}
+
 # Build and push the Kafka Connect image using Azure ACR Tasks
 # This builds the image in Azure, eliminating local Docker daemon dependency
+# Base image is pulled from ACR (imported above) to avoid Docker Hub rate limits
 resource "null_resource" "build_and_push_image" {
   # Trigger rebuild if Dockerfile changes
   triggers = {
-    dockerfile_sha = filesha256("${path.root}/../kafka-connect/Dockerfile")
+    dockerfile_sha    = filesha256("${path.root}/../kafka-connect/Dockerfile")
     connector_version = var.neo4j_connector_version
   }
 
@@ -47,10 +96,12 @@ resource "null_resource" "build_and_push_image" {
       echo "Using Azure ACR Tasks (no local Docker required)..."
 
       # Build image in Azure (not on local machine)
+      # ACR_LOGIN_SERVER points to cached base image, avoiding Docker Hub rate limits
       az acr build \
         --registry ${azurerm_container_registry.acr.name} \
         --image neo4j-kafka-connect:${var.neo4j_connector_version} \
         --platform linux/amd64 \
+        --build-arg ACR_LOGIN_SERVER=${azurerm_container_registry.acr.login_server} \
         --build-arg NEO4J_CONNECTOR_VERSION=${var.neo4j_connector_version} \
         ${path.root}/../kafka-connect
 
@@ -58,11 +109,15 @@ resource "null_resource" "build_and_push_image" {
     EOT
   }
 
-  depends_on = [azurerm_container_registry.acr]
+  depends_on = [
+    azurerm_container_registry.acr,
+    null_resource.import_kafka_connect_base
+  ]
 }
 
 # Build and push the heartbeat sidecar image
 # Lightweight Python container that keeps CDC pipeline connections alive
+# Base image is pulled from ACR (imported above) to avoid Docker Hub rate limits
 resource "null_resource" "build_and_push_heartbeat" {
   triggers = {
     dockerfile_sha = filesha256("${path.root}/../heartbeat/Dockerfile")
@@ -74,14 +129,19 @@ resource "null_resource" "build_and_push_heartbeat" {
     command = <<-EOT
       set -e
       echo "Building heartbeat sidecar image..."
+      # ACR_LOGIN_SERVER points to cached base image, avoiding Docker Hub rate limits
       az acr build \
         --registry ${azurerm_container_registry.acr.name} \
         --image cdc-heartbeat:latest \
         --platform linux/amd64 \
+        --build-arg ACR_LOGIN_SERVER=${azurerm_container_registry.acr.login_server} \
         ${path.root}/../heartbeat
       echo "Heartbeat image built and pushed to ACR"
     EOT
   }
 
-  depends_on = [azurerm_container_registry.acr]
+  depends_on = [
+    azurerm_container_registry.acr,
+    null_resource.import_python_base
+  ]
 }
