@@ -130,11 +130,9 @@ This tests all CDC event types and reports actual propagation latency (typically
 
 ## Demo flow (for presenting to users)
 
-**Video Walkthrough:** showing real-time replication from master to subscriber including the automated CDC test with latency measurements.
+**Video Walkthrough:** Watch the complete CDC pipeline demo showing real-time replication from master to subscriber including the automated CDC test with latency measurements.
 
-<video autoplay loop muted playsinline width="100%">
-  <source src="https://github.com/alexwoolford/neo4j-cdc-sync/raw/main/video/cdc-event-hubs-demo.mp4" type="video/mp4">
-</video>
+https://github.com/user-attachments/assets/bca078d9-e633-4956-99fc-812199fb89aa
 
 Use this sequence when demonstrating CDC to an audience.
 
